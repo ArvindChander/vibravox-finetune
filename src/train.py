@@ -122,7 +122,11 @@ def main() -> int:
 
     print_environment_info()
     processor = load_processor(language=config["model"]["language"], task=config["model"]["task"])
-    model = load_model(language=config["model"]["language"], task=config["model"]["task"])
+    model = load_model(
+        language=config["model"]["language"],
+        task=config["model"]["task"],
+        gradient_checkpointing=config["training"]["gradient_checkpointing"],
+    )
 
     train_dataset = StreamingTrainDataset(
         processor=processor,
@@ -169,6 +173,7 @@ def main() -> int:
         bf16=config["training"]["bf16"],
         fp16=config["training"]["fp16"],
         gradient_checkpointing=config["training"]["gradient_checkpointing"],
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         predict_with_generate=True,
         generation_max_length=config["training"]["generation_max_length"],
         remove_unused_columns=False,

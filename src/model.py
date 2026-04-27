@@ -49,7 +49,11 @@ def print_parameter_summary(model: Any) -> None:
     )
 
 
-def load_model(language: str = "fr", task: str = "transcribe") -> WhisperForConditionalGeneration:
+def load_model(
+    language: str = "fr",
+    task: str = "transcribe",
+    gradient_checkpointing: bool = True,
+) -> WhisperForConditionalGeneration:
     """Load Whisper-large and attach the locked LoRA adapters for training."""
     model = WhisperForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -62,5 +66,7 @@ def load_model(language: str = "fr", task: str = "transcribe") -> WhisperForCond
     model.generation_config.forced_decoder_ids = None
     model.generation_config.suppress_tokens = []
     model = get_peft_model(model, build_lora_config())
+    if gradient_checkpointing:
+        model.enable_input_require_grads()
     print_parameter_summary(model)
     return model
