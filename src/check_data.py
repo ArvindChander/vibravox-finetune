@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 import platform
 import sys
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
 import datasets
 import torch
 import transformers
-from datasets import Audio, DatasetDict, load_dataset
+from datasets import Audio, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset, load_dataset_builder
 from huggingface_hub import HfFolder, login
 from huggingface_hub.errors import HfHubHTTPError
 
@@ -19,7 +20,7 @@ from huggingface_hub.errors import HfHubHTTPError
 DATASET_ID = "Cnam-LMSSC/vibravox"
 CONFIG_NAME = "speech_clean"
 MAX_EXAMPLES = 5
-REFERENCE_FIELD_HINT = "audio.headset_microphone"
+REFERENCE_FIELD_HINT = "audio.airborne.mouth_headworn.reference_microphone"
 
 
 def print_header(title: str) -> None:
@@ -160,26 +161,26 @@ def format_duration(example: dict[str, Any], audio_field: str | None) -> str:
     return "unknown"
 
 
-def print_split_sizes(dataset_dict: DatasetDict) -> None:
-    """Print the number of rows in each built-in dataset split."""
+def print_split_sizes_from_builder() -> None:
+    """Print split sizes from dataset metadata without downloading full split contents."""
     print_header("Split Sizes")
-    for split_name, split_dataset in dataset_dict.items():
-        print(f"{split_name}: {len(split_dataset)} examples")
+    builder = load_dataset_builder(DATASET_ID, CONFIG_NAME)
+    for split_name, split_info in builder.info.splits.items():
+        print(f"{split_name}: {split_info.num_examples} examples")
 
 
-def print_example_report(dataset_dict: DatasetDict) -> str | None:
+def print_example_report(dataset_dict: IterableDatasetDict) -> str | None:
     """Print the first examples, field keys, transcript text, and discovered audio schema."""
     print_header("Schema And Sample Inspection")
     train_split = dataset_dict["train"]
-    decoded_train = train_split.cast_column(REFERENCE_FIELD_HINT, Audio(decode=True))
-    example_zero = decoded_train[0]
+    example_zero = next(iter(train_split))
     flattened_keys = flatten_example_keys(example_zero)
-    audio_columns = find_audio_columns(decoded_train.column_names)
+    audio_columns = find_audio_columns(list(example_zero.keys()))
     laryngophone_field = discover_laryngophone_field(audio_columns)
     transcript_field = pick_transcript_field(example_zero)
 
     print("Top-level column names:")
-    for name in decoded_train.column_names:
+    for name in example_zero.keys():
         print(f"- {name}")
 
     print("\nFlattened keys from the first example:")
@@ -203,14 +204,13 @@ def print_example_report(dataset_dict: DatasetDict) -> str | None:
         print("No obvious transcript field was found in the first example.")
 
     print(f"\nInspecting the first {MAX_EXAMPLES} training examples:")
-    preview_split = train_split.select(range(min(MAX_EXAMPLES, len(train_split))))
-    preview_audio_fields = [name for name in audio_columns if name in preview_split.column_names]
-    decoded_preview = preview_split
+    preview_split: IterableDataset = train_split
+    preview_audio_fields = [name for name in audio_columns if name in example_zero]
+    decoded_preview: IterableDataset = preview_split
     for audio_field in preview_audio_fields:
         decoded_preview = decoded_preview.cast_column(audio_field, Audio(decode=True))
 
-    for index in range(len(decoded_preview)):
-        example = decoded_preview[index]
+    for index, example in enumerate(islice(decoded_preview, MAX_EXAMPLES)):
         print(f"\nExample {index}")
         print("Keys:")
         for key in example.keys():
@@ -228,13 +228,14 @@ def print_example_report(dataset_dict: DatasetDict) -> str | None:
     return laryngophone_field
 
 
-def load_vibravox_dataset() -> DatasetDict | None:
-    """Load the target Vibravox config and gracefully handle gated or inaccessible access."""
+def load_vibravox_dataset() -> IterableDatasetDict | None:
+    """Load the target Vibravox config in streaming mode and gracefully handle gated access."""
     print_header("Dataset Load")
     print(f"Loading dataset: {DATASET_ID}")
     print(f"Config: {CONFIG_NAME}")
+    print("Mode: streaming=True to avoid downloading the full dataset during Stage 1")
     try:
-        dataset_dict = load_dataset(DATASET_ID, CONFIG_NAME)
+        dataset_dict = load_dataset(DATASET_ID, CONFIG_NAME, streaming=True)
         print("Dataset access succeeded.")
         return dataset_dict
     except HfHubHTTPError as error:
@@ -256,11 +257,16 @@ def main() -> int:
     if not token:
         return 0
 
+    if os.environ.get("HF_HUB_ENABLE_HF_TRANSFER") == "1":
+        print_header("Hugging Face Transfer Mode")
+        print("HF_HUB_ENABLE_HF_TRANSFER=1 detected.")
+        print("If `hf_transfer` is not installed, run `unset HF_HUB_ENABLE_HF_TRANSFER` before retrying.")
+
     dataset_dict = load_vibravox_dataset()
     if dataset_dict is None:
         return 0
 
-    print_split_sizes(dataset_dict)
+    print_split_sizes_from_builder()
     discovered_field = print_example_report(dataset_dict)
 
     print_header("Summary")
