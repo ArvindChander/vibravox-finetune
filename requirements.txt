@@ -2,8 +2,8 @@
 # The extra index allows pip to resolve NVIDIA CUDA wheels for torch/torchaudio.
 --extra-index-url https://download.pytorch.org/whl/cu128
 
-torch==2.7.0
-torchaudio==2.7.0
+torch==2.8.0
+torchaudio==2.8.0
 transformers==4.51.3
 datasets==3.5.0
 peft==0.15.2

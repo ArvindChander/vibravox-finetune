@@ -1,0 +1,33 @@
+seed: 42
+
+model:
+  language: "fr"
+  task: "transcribe"
+
+data:
+  audio_field: "audio.throat_microphone"
+  text_field: "normalized_text"
+  shuffle_buffer_size: 256
+
+training:
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-4
+  lr_scheduler_type: "constant_with_warmup"
+  warmup_steps: 500
+  max_steps: 5000
+  eval_steps: 500
+  save_steps: 500
+  logging_steps: 25
+  eval_subset_size: 200
+  save_total_limit: 3
+  generation_max_length: 225
+  dataloader_num_workers: 0
+  gradient_checkpointing: true
+  bf16: true
+  fp16: false
+
+paths:
+  output_dir: "outputs/checkpoints/run_v1"
+  logging_dir: "outputs/logs/run_v1"
