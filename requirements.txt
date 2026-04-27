@@ -1,0 +1,16 @@
+# Prefer installing on a CUDA-capable RunPod PyTorch image.
+# The extra index allows pip to resolve NVIDIA CUDA wheels for torch/torchaudio.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.7.0
+torchaudio==2.7.0
+transformers==4.51.3
+datasets==3.5.0
+peft==0.15.2
+accelerate==1.6.0
+evaluate==0.4.3
+jiwer==3.1.0
+soundfile==0.13.1
+librosa==0.11.0
+huggingface_hub==0.30.2
+PyYAML==6.0.2
