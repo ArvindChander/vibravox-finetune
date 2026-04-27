@@ -11,7 +11,7 @@ from typing import Any
 import datasets
 import torch
 import transformers
-from datasets import Audio, Dataset, load_dataset, load_dataset_builder
+from datasets import Audio, IterableDataset, load_dataset, load_dataset_builder
 from jiwer import Compose, RemoveMultipleSpaces, RemovePunctuation, Strip, ToLowerCase, wer
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
@@ -57,19 +57,19 @@ def print_environment_info() -> None:
         print("GPU total VRAM (GB): 0.00")
 
 
-def load_test_split() -> Dataset:
-    """Load the test split with only the fields needed for the zero-shot baseline."""
+def load_test_split() -> IterableDataset:
+    """Load the test split in streaming mode to avoid downloading full dataset shards."""
     print_header("Dataset")
     print(f"Loading dataset: {DATASET_ID}")
     print(f"Config: {CONFIG_NAME}")
     builder = load_dataset_builder(DATASET_ID, CONFIG_NAME)
     split_size = builder.info.splits["test"].num_examples
     print(f"Test split size from metadata: {split_size}")
-    dataset = load_dataset(DATASET_ID, CONFIG_NAME, split="test")
-    dataset = dataset.select_columns([LARYNGOPHONE_FIELD, REFERENCE_FIELD, TARGET_TEXT_FIELD, "duration"])
+    print("Mode: streaming=True to avoid downloading the full dataset during Stage 2")
+    dataset = load_dataset(DATASET_ID, CONFIG_NAME, split="test", streaming=True)
     dataset = dataset.cast_column(LARYNGOPHONE_FIELD, Audio(sampling_rate=16_000, decode=True))
     dataset = dataset.cast_column(REFERENCE_FIELD, Audio(sampling_rate=16_000, decode=True))
-    print(f"Loaded test examples: {len(dataset)}")
+    print(f"Planned streamed test examples: {split_size}")
     return dataset
 
 
@@ -125,18 +125,18 @@ def transcribe_example(
 
 
 def run_channel_baseline(
-    dataset: Dataset,
+    dataset: IterableDataset,
     processor: WhisperProcessor,
     model: WhisperForConditionalGeneration,
     device: torch.device,
     audio_field: str,
     label: str,
+    total_examples: int,
 ) -> float:
     """Run zero-shot inference on one audio channel and return normalized WER."""
     print_header(f"Baseline: {label}")
     predictions: list[str] = []
     references: list[str] = []
-    total_examples = len(dataset)
     total_duration_seconds = 0.0
 
     for index, example in enumerate(dataset):
@@ -155,10 +155,7 @@ def run_channel_baseline(
 
         if (index + 1) % 100 == 0 or index + 1 == total_examples:
             current_wer = wer(references, predictions)
-            print(
-                f"{label}: processed {index + 1}/{total_examples} examples | "
-                f"running WER={current_wer:.4f} | audio hours={total_duration_seconds / 3600:.2f}"
-            )
+            print(f"{label}: processed {index + 1}/{total_examples} examples | running WER={current_wer:.4f} | audio hours={total_duration_seconds / 3600:.2f}")
             if device.type == "cuda":
                 allocated_gb = torch.cuda.memory_allocated() / (1024**3)
                 reserved_gb = torch.cuda.memory_reserved() / (1024**3)
@@ -199,7 +196,8 @@ def main() -> int:
         print("HF_HUB_ENABLE_HF_TRANSFER=1 detected.")
         print("If `hf_transfer` is not installed, run `unset HF_HUB_ENABLE_HF_TRANSFER` before retrying.")
 
-    dataset = load_test_split()
+    builder = load_dataset_builder(DATASET_ID, CONFIG_NAME)
+    test_examples = builder.info.splits["test"].num_examples
     processor, model, device = load_model_and_processor()
 
     print_header("Task Setup")
@@ -207,8 +205,26 @@ def main() -> int:
     print(f"Laryngophone field: {LARYNGOPHONE_FIELD}")
     print(f"Airborne reference field: {REFERENCE_FIELD}")
 
-    laryngophone_wer = run_channel_baseline(dataset, processor, model, device, LARYNGOPHONE_FIELD, "Laryngophone")
-    reference_wer = run_channel_baseline(dataset, processor, model, device, REFERENCE_FIELD, "Airborne reference")
+    laryngophone_dataset = load_test_split()
+    laryngophone_wer = run_channel_baseline(
+        laryngophone_dataset,
+        processor,
+        model,
+        device,
+        LARYNGOPHONE_FIELD,
+        "Laryngophone",
+        test_examples,
+    )
+    reference_dataset = load_test_split()
+    reference_wer = run_channel_baseline(
+        reference_dataset,
+        processor,
+        model,
+        device,
+        REFERENCE_FIELD,
+        "Airborne reference",
+        test_examples,
+    )
 
     print_header("Final Results")
     print(f"Laryngophone zero-shot floor WER: {laryngophone_wer:.4f}")
