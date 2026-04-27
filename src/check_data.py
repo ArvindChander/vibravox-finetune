@@ -20,7 +20,7 @@ from huggingface_hub.errors import HfHubHTTPError
 DATASET_ID = "Cnam-LMSSC/vibravox"
 CONFIG_NAME = "speech_clean"
 MAX_EXAMPLES = 5
-REFERENCE_FIELD_HINT = "audio.airborne.mouth_headworn.reference_microphone"
+REFERENCE_FIELD_HINT = "audio.headset_microphone"
 
 
 def print_header(title: str) -> None:

@@ -17,10 +17,11 @@
 ## Data
 - Dataset: Cnam-LMSSC/vibravox
 - Config: "speech_clean"
-- Sensor channel for v1: audio.body_conducted.throat.larynx_microphone
-  (verify exact field name when loading; adjust if HF schema differs)
+- Sensor channel for v1: audio.throat_microphone
+  (confirmed from the Hugging Face schema during Stage 1)
 - Reference channel for ceiling baseline:
-  audio.airborne.mouth_headworn.reference_microphone
+  audio.headset_microphone
+  (confirmed from the Hugging Face schema during Stage 1)
 - Sampling rate: resample everything to 16 kHz (Whisper requirement)
 - Splits: use the dataset's built-in train/validation/test
 
