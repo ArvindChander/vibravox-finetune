@@ -111,6 +111,20 @@ class LoggingSeq2SeqTrainer(Seq2SeqTrainer):
             logs["gpu_reserved_gb"] = round(torch.cuda.memory_reserved() / (1024**3), 2)
         super().log(logs, start_time=start_time)
 
+    def prediction_step(
+        self,
+        model: torch.nn.Module,
+        inputs: dict[str, Any],
+        prediction_loss_only: bool,
+        ignore_keys: list[str] | None = None,
+    ):
+        """Cast Whisper input features to the model dtype before generation-based evaluation."""
+        prepared_inputs = dict(inputs)
+        input_features = prepared_inputs.get("input_features")
+        if isinstance(input_features, torch.Tensor):
+            prepared_inputs["input_features"] = input_features.to(dtype=model.dtype)
+        return super().prediction_step(model, prepared_inputs, prediction_loss_only, ignore_keys=ignore_keys)
+
 
 def main() -> int:
     """Load config, build the streaming datasets, and run LoRA fine-tuning."""
@@ -171,6 +185,7 @@ def main() -> int:
         logging_steps=config["training"]["logging_steps"],
         save_total_limit=config["training"]["save_total_limit"],
         bf16=config["training"]["bf16"],
+        bf16_full_eval=config["training"]["bf16"],
         fp16=config["training"]["fp16"],
         gradient_checkpointing=config["training"]["gradient_checkpointing"],
         gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -179,6 +194,7 @@ def main() -> int:
         remove_unused_columns=False,
         dataloader_num_workers=config["training"]["dataloader_num_workers"],
         report_to=[],
+        label_names=["labels"],
         load_best_model_at_end=True,
         metric_for_best_model="wer",
         greater_is_better=False,
