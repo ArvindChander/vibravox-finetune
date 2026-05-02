@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import platform
 import sys
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,18 @@ LARYNGOPHONE_FIELD = "audio.throat_microphone"
 REFERENCE_FIELD = "audio.headset_microphone"
 RESULTS_PATH = Path("outputs/results.md")
 MAX_NEW_TOKENS = 225
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse optional smoke-test controls for the baseline script."""
+    parser = argparse.ArgumentParser(description="Run zero-shot Whisper-large baselines on Vibravox test audio.")
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Optional limit for a cheap smoke test before running the full test split.",
+    )
+    return parser.parse_args()
 
 
 def print_header(title: str) -> None:
@@ -57,20 +71,24 @@ def print_environment_info() -> None:
         print("GPU total VRAM (GB): 0.00")
 
 
-def load_test_split() -> IterableDataset:
+def load_test_split(max_samples: int | None = None) -> tuple[IterableDataset, int]:
     """Load the test split in streaming mode to avoid downloading full dataset shards."""
     print_header("Dataset")
     print(f"Loading dataset: {DATASET_ID}")
     print(f"Config: {CONFIG_NAME}")
     builder = load_dataset_builder(DATASET_ID, CONFIG_NAME)
     split_size = builder.info.splits["test"].num_examples
+    effective_examples = min(split_size, max_samples) if max_samples is not None else split_size
     print(f"Test split size from metadata: {split_size}")
     print("Mode: streaming=True to avoid downloading the full dataset during Stage 2")
     dataset = load_dataset(DATASET_ID, CONFIG_NAME, split="test", streaming=True)
     dataset = dataset.cast_column(LARYNGOPHONE_FIELD, Audio(sampling_rate=16_000, decode=True))
     dataset = dataset.cast_column(REFERENCE_FIELD, Audio(sampling_rate=16_000, decode=True))
-    print(f"Planned streamed test examples: {split_size}")
-    return dataset
+    if max_samples is not None:
+        dataset = dataset.take(max_samples)
+        print(f"Smoke-test sample limit enabled: {max_samples}")
+    print(f"Planned streamed test examples: {effective_examples}")
+    return dataset, effective_examples
 
 
 def load_model_and_processor() -> tuple[WhisperProcessor, WhisperForConditionalGeneration, torch.device]:
@@ -189,6 +207,7 @@ def write_results(laryngophone_wer: float, reference_wer: float) -> None:
 
 def main() -> int:
     """Run the full Stage 2 zero-shot baseline workflow and return a shell exit code."""
+    args = parse_args()
     print_environment_info()
 
     if os.environ.get("HF_HUB_ENABLE_HF_TRANSFER") == "1":
@@ -196,8 +215,6 @@ def main() -> int:
         print("HF_HUB_ENABLE_HF_TRANSFER=1 detected.")
         print("If `hf_transfer` is not installed, run `unset HF_HUB_ENABLE_HF_TRANSFER` before retrying.")
 
-    builder = load_dataset_builder(DATASET_ID, CONFIG_NAME)
-    test_examples = builder.info.splits["test"].num_examples
     processor, model, device = load_model_and_processor()
 
     print_header("Task Setup")
@@ -205,7 +222,7 @@ def main() -> int:
     print(f"Laryngophone field: {LARYNGOPHONE_FIELD}")
     print(f"Airborne reference field: {REFERENCE_FIELD}")
 
-    laryngophone_dataset = load_test_split()
+    laryngophone_dataset, test_examples = load_test_split(max_samples=args.max_samples)
     laryngophone_wer = run_channel_baseline(
         laryngophone_dataset,
         processor,
@@ -215,7 +232,7 @@ def main() -> int:
         "Laryngophone",
         test_examples,
     )
-    reference_dataset = load_test_split()
+    reference_dataset, _ = load_test_split(max_samples=args.max_samples)
     reference_wer = run_channel_baseline(
         reference_dataset,
         processor,

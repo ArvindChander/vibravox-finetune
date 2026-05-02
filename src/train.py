@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     """Parse the YAML config path from the command line."""
     parser = argparse.ArgumentParser(description="Train Whisper-large LoRA on the Vibravox throat microphone.")
     parser.add_argument("--config", required=True, help="Path to the YAML config file.")
+    parser.add_argument(
+        "--resume-from-checkpoint",
+        default=None,
+        help="Optional checkpoint path to resume a previously interrupted run.",
+    )
     return parser.parse_args()
 
 
@@ -168,6 +173,7 @@ def main() -> int:
     print(f"Config path: {args.config}")
     print(f"Checkpoint output dir: {output_dir}")
     print(f"Logging dir: {logging_dir}")
+    print(f"Resume from checkpoint: {args.resume_from_checkpoint or 'none'}")
 
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(output_dir),
@@ -214,7 +220,7 @@ def main() -> int:
     )
 
     print("\n==================== Training ====================")
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model()
     trainer.save_state()
     metrics = train_result.metrics
